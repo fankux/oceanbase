@@ -69,6 +69,7 @@
 #include "ob_expr_regexp_replace.h"
 #include "ob_expr_regexp_substr.h"
 #include "ob_expr_repeat.h"
+#include "ob_expr_export_set.h"
 #include "ob_expr_replace.h"
 #include "ob_expr_func_dump.h"
 #include "ob_expr_func_part_hash.h"
@@ -171,6 +172,8 @@
 #include "ob_expr_radians.h"
 #include "ob_expr_pi.h"
 #include "ob_expr_maketime.h"
+#include "ob_expr_makedate.h"
+#include "ob_expr_time_format.h"
 #include "ob_expr_to_blob.h"
 #include "ob_expr_to_outfile_row.h"
 #include "ob_expr_format.h"
@@ -178,6 +181,7 @@
 #include "ob_expr_bit_length.h"
 #include "ob_expr_to_single_byte.h"
 #include "ob_expr_to_multi_byte.h"
+#include "ob_expr_convert_tz.h"
 
 namespace oceanbase {
 using namespace common;
@@ -651,7 +655,18 @@ static ObExpr::EvalFunc g_expr_eval_functions[] = {
     ObExprToMultiByte::calc_to_multi_byte,            /* 397 */
     NULL,                                             // ObExprDllUdf::eval_dll_udf,                                /* 398 */
     NULL,                                             // ObExprRawtonhex::calc_rawtonhex_expr,                      /* 399 */
-    ObExprPi::eval_pi                                 /* 400 */
+    ObExprPi::eval_pi,                                /* 400 */
+    ObExprConvertTZ::eval_convert_tz,                 /* 401 */
+    ObExprUtcTime::eval_utc_time,                     /* 402 */
+    ObExprUtcDate::eval_utc_date,                     /* 403 */
+    ObExprGetFormat::calc_get_format,                 /* 404 */
+    NULL,                                             //ObExprCollectionConstruct::eval_collection_construct,       /* 405 */
+    NULL,                                             //ObExprObjAccess::eval_obj_access,                           /* 406 */
+    ObExprTimeFormat::calc_time_format,               /* 407 */
+    ObExprMakedate::calc_makedate,                    /* 408 */
+    ObExprPeriodAdd::calc_periodadd,                  /* 409 */
+    ObExprExportSet::eval_export_set,                 /* 410 */
+    ObExprConvertTZ::eval_convert_tz                  /* 411 */
 };
 
 REG_SER_FUNC_ARRAY(OB_SFA_SQL_EXPR_EVAL, g_expr_eval_functions, ARRAYSIZEOF(g_expr_eval_functions));

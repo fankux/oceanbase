@@ -278,11 +278,6 @@ void ObPartTransCtx::destroy()
       coord_ctx_ = NULL;
     }
     REC_TRANS_TRACE_EXT(tlog_, destroy, OB_ID(arg1), (int64_t)(&submit_log_cb_));
-    // [DEBUG_ONLY] print the trace and call stack if the clog is invoking the
-    // txn callback during destroying the participant context
-    if (submit_log_cb_.is_callbacking()) {
-      TRANS_LOG(ERROR, "some BUG may happen !!!", K(lbt()), K(*this), K_(trans_id));
-    }
     if (mt_ctx_.get_ref() != 0) {
       TRANS_LOG(ERROR, "memtable_ctx ref not match!!!", K(mt_ctx_.get_ref()), K(*this), K(mt_ctx_), K(&mt_ctx_));
     }
@@ -1102,6 +1097,8 @@ int ObPartTransCtx::end_stmt_(
       need_response = false;
       ret = OB_NOT_MASTER;
       TRANS_LOG(WARN, "transaction is preparing changing leader", KR(ret), "context", *this);
+    } else if (OB_FAIL(get_status_())) {
+      TRANS_LOG(WARN, "transaction is not healthy when end_stmt_", KR(ret), "context", *this);
     } else if (!can_rollback_stmt_) {
       need_response = true;
       if (Ob2PCState::INIT == get_state_()) {
@@ -1243,6 +1240,7 @@ int ObPartTransCtx::handle_message(const ObTransMsg& msg)
         } else {
           set_stc_by_now_();
         }
+        const int64_t tmp_config = ObServerConfig::get_instance().trx_2pc_retry_interval;
         // TODO do not set scheduler/coordinator/participants if state is init
         if (OB_FAIL(set_app_trace_info_(msg.get_app_trace_info()))) {
           TRANS_LOG(WARN, "set app trace info error", K(ret), K(msg), K(*this));
@@ -1257,9 +1255,9 @@ int ObPartTransCtx::handle_message(const ObTransMsg& msg)
         } else if (OB_FAIL(handle_2pc_prepare_request_(msg))) {
           TRANS_LOG(WARN, "handle 2pc preprare request error", KR(ret), "context", *this, K(msg));
         } else if (OB_FAIL(unregister_timeout_task_())) {
-          TRANS_LOG(WARN, "unregister timeout handler error", KR(ret), "context", *this);
-        } else if (OB_FAIL(register_timeout_task_(ObServerConfig::get_instance().trx_2pc_retry_interval))) {
-          TRANS_LOG(WARN, "register timeout handler error", KR(ret), "context", *this);
+          TRANS_LOG(WARN, "unregister timeout handler error", K(ret), "context", *this);
+        } else if (OB_FAIL(register_timeout_task_(std::min(tmp_config, (int64_t)MAX_TRANS_2PC_TIMEOUT_US)))) {
+          TRANS_LOG(WARN, "register timeout handler error", K(ret), "context", *this);
         } else {
           // do nothing
         }
@@ -1534,6 +1532,9 @@ int ObPartTransCtx::kill(const KillTransArg& arg, ObEndTransCallbackArray& cb_ar
     }
     if (OB_SUCC(ret)) {
       trans_kill_();
+      // Force kill cannot guarantee the consistency, so we just set end_log_ts
+      // to zero
+      end_log_ts_ = 0;
       (void)trans_clear_();
       if (OB_FAIL(unregister_timeout_task_())) {
         TRANS_LOG(WARN, "unregister timer task error", KR(ret), "context", *this);
@@ -1778,6 +1779,10 @@ int ObPartTransCtx::on_sync_log_success(
       has_write_or_replay_mutator_redo_log_ = true;
       if (0 == redo_log_no_++) {
         TRANS_LOG(DEBUG, "participant enter into 2pc", "context", *this, K(log_type), K(timestamp));
+      }
+      if (redo_log_no_ == 1) {
+        // The log is completed, we need verify the txn checksum
+        need_checksum_ = true;
       }
       // need submit redo_prepare log when log_type equal OB_LOG_TRANS_REDO
       if (OB_LOG_TRANS_REDO == log_type) {
@@ -2532,23 +2537,25 @@ int ObPartTransCtx::leader_active(const LeaderActiveArg& arg)
       is_trans_state_sync_finished_ = false;
       is_changing_leader_ = false;
       prepare_changing_leader_state_ = CHANGING_LEADER_STATE::NO_CHANGING_LEADER;
+      update_max_submitted_log_timestamp_(max_durable_log_ts_);
       if (need_register_timer_task) {
         // The request_id_ should be initialized to prevent the 2pc cannot be
         // driven if all participants transferring the leader
         generate_request_id_();
+        trans_2pc_timeout_ = ObServerConfig::get_instance().trx_2pc_retry_interval;
         if (Ob2PCState::INIT == get_state_()) {
           const int64_t left_time = trans_expired_time_ - ObClockGenerator::getRealClock();
           if (left_time > 0) {
             trans_2pc_timeout_ = left_time;
           } else {
-            trans_2pc_timeout_ = ObServerConfig::get_instance().trx_2pc_retry_interval;
+            trans_2pc_timeout_ = std::min(trans_2pc_timeout_, (int64_t)MAX_TRANS_2PC_TIMEOUT_US);
           }
           // The XA txn has replayed the last redo log
           if (is_xa_local_trans() && is_redo_prepared_) {
-            trans_2pc_timeout_ = ObServerConfig::get_instance().trx_2pc_retry_interval;
+            trans_2pc_timeout_ = std::min(trans_2pc_timeout_, (int64_t)MAX_TRANS_2PC_TIMEOUT_US);
           }
         } else {
-          trans_2pc_timeout_ = ObServerConfig::get_instance().trx_2pc_retry_interval;
+          trans_2pc_timeout_ = std::min(trans_2pc_timeout_, (int64_t)MAX_TRANS_2PC_TIMEOUT_US);
         }
         // do not post transaction message to avoid deadlock, bug#8257026
         // just register timeout task
@@ -2744,14 +2751,15 @@ int ObPartTransCtx::commit(const bool is_rollback, sql::ObIEndTransCallback* cb,
       //   - If the txn shouldnot keep the dependency with the predecessors, rollback the txn immediately
       //   - If the dependecy is necessary, write the OB_LOG_SP_ELR_TRANS_COMMIT
       //   - Current implementation write the OB_LOG_SP_ELR_TRANS_COMMIT if the predecessors exit
+      const int64_t tmp_config = ObServerConfig::get_instance().trx_2pc_retry_interval;
       if (OB_FAIL(set_app_trace_info_(app_trace_info))) {
         TRANS_LOG(WARN, "set app trace info error", K(ret), K(app_trace_info), K(*this));
       } else if (OB_FAIL(generate_sp_commit_log_type_(log_type))) {
         TRANS_LOG(WARN, "generate sp commit log type error", K(ret), "context", *this);
       } else if (OB_FAIL(unregister_timeout_task_())) {
-        TRANS_LOG(WARN, "unregister timeout handler error", KR(ret), "context", *this);
+        TRANS_LOG(WARN, "unregister timeout handler error", K(ret), "context", *this);
       } else if (OB_FAIL(register_timeout_task_(
-                     ObServerConfig::get_instance().trx_2pc_retry_interval + trans_id_.hash() % usec_per_sec))) {
+                     std::min(tmp_config, (int64_t)MAX_TRANS_2PC_TIMEOUT_US) + trans_id_.hash() % usec_per_sec))) {
         TRANS_LOG(WARN, "register timeout handler error", KR(ret), "context", *this);
       } else if (OB_FAIL(submit_log_async_(log_type, has_redo_log))) {
         TRANS_LOG(WARN, "submit sp log error", KR(ret), "context", *this);
@@ -2863,12 +2871,14 @@ int ObPartTransCtx::check_schema_version_elapsed(const int64_t schema_version, c
     } else if (OB_UNLIKELY(schema_version <= 0) || OB_UNLIKELY(refreshed_schema_ts < 0)) {
       TRANS_LOG(WARN, "invalid argument", K(schema_version), "context", *this);
       ret = OB_INVALID_ARGUMENT;
+    } else if (is_exiting_) {
+      // do nothing
     } else if (for_replay_) {
       ret = OB_NOT_MASTER;
       if (REACH_TIME_INTERVAL(10 * 1000 * 1000)) {
         TRANS_LOG(WARN, "current participant not master, need retry", K(ret), K(*this));
       }
-    } else if (is_exiting_ || is_readonly_) {
+    } else if (is_readonly_) {
       // do nothing
     } else if (ctx_create_time_ <= refreshed_schema_ts) {
       ret = OB_EAGAIN;
@@ -3065,6 +3075,8 @@ int ObPartTransCtx::leader_revoke(const bool first_check, bool& need_release, Ob
     (void)unregister_timeout_task_();
     if (!has_logged_() && !is_in_2pc_() && 0 == submit_log_count_) {
       trans_kill_();
+      // Because of  no logs, we can free the dirty trans instantly
+      end_log_ts_ = 0;
       (void)trans_clear_();
       set_exiting_();
       if (!is_logging_()) {
@@ -3084,6 +3096,12 @@ int ObPartTransCtx::leader_revoke(const bool first_check, bool& need_release, Ob
       if (!is_trans_state_sync_finished_) {
         TRANS_LOG(INFO, "transaction is killed", "context", *this);
       }
+    } else if (has_logged_() && !is_in_2pc_() && !is_trans_state_sync_finished_ && 0 == submit_log_count_) {
+      // - When leader is revoking  and some non-2pc logs of txn has already been
+      //   submitted to sliding window:
+      //   - If no on-the-fly log and state log is not synced successfully, remove all
+      //     marked_log_cnts
+      (void)mt_ctx_.clean_dirty_callbacks();
     } else if (OB_FAIL(mt_ctx_.commit_to_replay())) {
       TRANS_LOG(WARN, "commit to replay error", KR(ret), "context", *this);
     } else {
@@ -3899,7 +3917,10 @@ int ObPartTransCtx::replay_prepare_log(const ObTransPrepareLog& log, const int64
     } else {
       batch_commit_trans_ = false;
     }
-    if (log.get_redo_log_ids().count() == 0) {
+    if (0 == log.get_redo_log_ids().count() && 0 == redo_log_no_) {
+      // We only enable the checksum check if prev_redo_log_ids' count is zero
+      // and redo_log_no is zero. The later check is used to filter the txn
+      // REDO_WITH_PREPARE log which donot include itself inth prev_redo_log_id.
       need_checksum_ = true;
     }
     /*
@@ -4109,6 +4130,18 @@ bool ObPartTransCtx::need_rollback_when_restore_(const int64_t commit_version)
   const uint64_t last_restore_log_id = partition_mgr_->get_last_restore_log_id();
   return restore_snapshot_version > 0 && (last_restore_log_id == OB_INVALID_ID || min_log_id_ <= last_restore_log_id) &&
          commit_version > restore_snapshot_version;
+}
+
+bool ObPartTransCtx::need_update_schema_version(const int64_t log_id, const int64_t log_ts)
+{
+  const int64_t restore_snapshot_version = partition_mgr_->get_restore_snapshot_version();
+  const int64_t last_restore_log_id = partition_mgr_->get_last_restore_log_id();
+  bool need_update = true;
+  if (restore_snapshot_version > 0 && (last_restore_log_id == OB_INVALID_ID || log_id <= last_restore_log_id) &&
+      (log_ts > restore_snapshot_version)) {
+    need_update = false;
+  }
+  return need_update;
 }
 
 int ObPartTransCtx::trans_replay_commit_(const int64_t commit_version, const int64_t checksum)
@@ -4409,7 +4442,6 @@ int ObPartTransCtx::replay_trans_state_log(const ObTransStateLog& log, const int
       TRANS_LOG(WARN, "different can elr state", K(log), K(*this));
     }
     can_elr_ = log.is_can_elr();
-    update_durable_log_id_ts_(OB_LOG_TRANS_STATE, log_id, timestamp);
     log_type_ = log.get_log_type();
     scheduler_ = log.get_scheduler();
     is_readonly_ = log.is_readonly();
@@ -4438,9 +4470,12 @@ int ObPartTransCtx::replay_trans_state_log(const ObTransStateLog& log, const int
     has_trans_state_log_ = true;
     TRANS_LOG(INFO, "replay trans state log success", "context", *this, K(log), K(log_id));
   }
-  if (OB_FAIL(ret)) {
+  if (OB_SUCC(ret)) {
+    update_durable_log_id_ts_(OB_LOG_TRANS_STATE, log_id, timestamp);
+  } else {
     TRANS_LOG(WARN, "replay trans state log error", KR(ret), "context", *this, K(log), K(log_id));
   }
+
   REC_TRANS_TRACE_EXT(tlog_,
       replay_trans_state,
       Y(ret),
@@ -4668,11 +4703,11 @@ int ObPartTransCtx::replay_start_working_log(const int64_t timestamp, const uint
 
   CtxTransTableLockGuard guard(lock_, trans_table_seqlock_);
 
-  if (submit_log_count_ <= 0) {
-    // do nothing
-  } else if (IS_NOT_INIT) {
+  if (IS_NOT_INIT) {
     TRANS_LOG(WARN, "ObPartTransCtx not inited");
     ret = OB_NOT_INIT;
+  } else if (is_exiting_) {
+    // do nothing
   } else if (OB_UNLIKELY(!for_replay_)) {
     ret = OB_ERR_UNEXPECTED;
     TRANS_LOG(ERROR, "invalid state, transaction is not replaying", KR(ret), "context", *this);
@@ -4681,6 +4716,16 @@ int ObPartTransCtx::replay_start_working_log(const int64_t timestamp, const uint
     TRANS_LOG(WARN, "trans is not valid", K(*this), K(log_id), K(timestamp), K(log), K(timestamp));
     ret = OB_TRANS_INVALID_STATE;
     need_print_trace_log_ = true;
+  } else if (0 == submit_log_count_) {
+    if (has_logged_() && !is_in_2pc_() && !is_trans_state_sync_finished_ && is_changing_leader_) {
+      // - When replaying start working:
+      //   - Case 3.2: If txn has no on-the-fly log and no trans state is synced by the leader
+      //     transfer(txn may need abort, while we donot have the information whether the
+      //     original leader successfully synced the log), and we also remove all marked trans node.
+      (void)mt_ctx_.clean_dirty_callbacks();
+
+      TRANS_LOG(INFO, "clean dirty callbacks when replay start working", K(*this));
+    }
   } else {
     need_print_trace_log_ = true;
     if (!has_logged_() && !is_in_2pc_() && !is_hazardous_ctx_) {
@@ -4695,11 +4740,17 @@ int ObPartTransCtx::replay_start_working_log(const int64_t timestamp, const uint
       // majority(TODO: need provement)
       is_dirty_ = false;
       set_exiting_();
-    } else {
-      // because current log is not majoritied, and some logs have been
+    } else if (has_logged_() && !is_in_2pc_() && submit_log_count_ > 0) {
+      // - When replaying start working:
+      //   - Case 3.1: If txn has a on-the-fly log, it means some logs are not paxos-choosen
+      //     successfully(txn need abort), so we remove all marked trans node
+      (void)mt_ctx_.clean_dirty_callbacks();
+
+      // Because current log is not majoritied, and some logs have been
       // majoritied, we need wait for abort log by new leader
       TRANS_LOG(INFO, "no need to kill trans when replay start working log", K(*this));
     }
+
     submit_log_count_ = 0;
     TRANS_STAT_ABORT_TRANS_INC(tenant_id_);
   }
@@ -6149,10 +6200,11 @@ int ObPartTransCtx::generate_redo_prepare_log_info(char* buf, const int64_t size
       // Record the commit version of the txn. If you can elr later, you
       // need to record it in the trans_result_info_mgr
       global_trans_version_ = commit_version;
+      int64_t tmp_config = ObServerConfig::get_instance().trx_2pc_retry_interval;
       if (OB_FAIL(unregister_timeout_task_())) {
-        TRANS_LOG(WARN, "unregister timeout handler error", KR(ret), "context", *this);
-      } else if (OB_FAIL(register_timeout_task_(ObServerConfig::get_instance().trx_2pc_retry_interval))) {
-        TRANS_LOG(WARN, "register timeout handler error", KR(ret), "context", *this);
+        TRANS_LOG(WARN, "unregister timeout handler error", K(ret), "context", *this);
+      } else if (OB_FAIL(register_timeout_task_(std::min(tmp_config, (int64_t)MAX_TRANS_2PC_TIMEOUT_US)))) {
+        TRANS_LOG(WARN, "register timeout handler error", K(ret), "context", *this);
       } else {
         // do nothing
       }
@@ -7018,6 +7070,32 @@ int ObPartTransCtx::post_stmt_response_(
         // Record the sending timestamp of the request in the response, which is
         // used by the scheduler to verify the timeout of the message
 
+      } else if (OB_FAIL(msg.set_msg_timeout(request_timeout))) {
+        TRANS_LOG(INFO,
+            "set message start timestamp error",
+            K(ret),
+            K(msg_type),
+            K(sql_no),
+            K(status),
+            K(request_timeout),
+            K(*this));
+      } else {
+        // do nothing
+      }
+    } else if (OB_TRANS_STMT_ROLLBACK_RESPONSE == msg_type) {
+      if (OB_FAIL(msg.init(tenant_id_,
+              trans_id_,
+              msg_type,
+              trans_expired_time_,
+              self_,
+              SCHE_PARTITION_ID,
+              trans_param_,
+              addr_,
+              sql_no,
+              status,
+              request_id_))) {
+        TRANS_LOG(WARN, "message init error", K(ret), K_(scheduler), K_(tmp_scheduler), K(msg_type));
+        // 将request的发送时间戳记录到response中，用于scheduler对消息超时的校验
       } else if (OB_FAIL(msg.set_msg_timeout(request_timeout))) {
         TRANS_LOG(INFO,
             "set message start timestamp error",
@@ -8342,9 +8420,10 @@ int ObPartTransCtx::handle_2pc_request(const ObTrxMsgBase& msg, const int64_t ms
       }
     }
     if (OB_SUCC(ret)) {
+      const int64_t tmp_config = ObServerConfig::get_instance().trx_2pc_retry_interval;
       if (OB_FAIL(unregister_timeout_task_())) {
         TRANS_LOG(WARN, "unregister timeout handler error", K(ret), K(*this));
-      } else if (OB_FAIL(register_timeout_task_(ObServerConfig::get_instance().trx_2pc_retry_interval))) {
+      } else if (OB_FAIL(register_timeout_task_(std::min(tmp_config, (int64_t)MAX_TRANS_2PC_TIMEOUT_US)))) {
         TRANS_LOG(WARN, "register timeout handler error", K(ret), K(*this));
       } else {
         // do nothing
@@ -8745,6 +8824,7 @@ int ObPartTransCtx::on_prepare_(const bool batch_committed, const int64_t timest
   set_state_(Ob2PCState::PREPARE);
   is_redo_prepared_ = true;
   trans_2pc_timeout_ = ObServerConfig::get_instance().trx_2pc_retry_interval;
+  trans_2pc_timeout_ = std::min(trans_2pc_timeout_, (int64_t)MAX_TRANS_2PC_TIMEOUT_US);
   if (batch_committed) {
     // Set up end_log_ts_ for 1pc
     end_log_ts_ = timestamp;
@@ -9024,7 +9104,7 @@ int ObPartTransCtx::on_clear_(const bool need_response)
         TRANS_LOG(WARN, "submit 2pc commit clear response error", "ret", tmp_ret, "context", *this);
       }
     } else if (enable_new_1pc_) {
-      if (NULL != coord_ctx_) {
+      if (NULL != coord_ctx_ && !submit_log_cb_.is_commit_log_callbacking()) {
         trans_service_->get_coord_trans_ctx_mgr().revert_trans_ctx(coord_ctx_);
         coord_ctx_ = NULL;
       }
@@ -11882,6 +11962,7 @@ int ObPartTransCtx::fake_kill_(const int64_t terminate_log_ts)
     // fake kill interface
     end_log_ts_ = terminate_log_ts;
     // TODO(): the interface is currently not necessary, remove it
+    set_state_(Ob2PCState::CLEAR);
     (void)trans_clear_();
     set_exiting_();
   }
@@ -11902,6 +11983,7 @@ int ObPartTransCtx::kill_v2_(const int64_t terminate_log_ts)
   } else {
     end_log_ts_ = terminate_log_ts;
     // TODO(): the interface is currently not necessary, remove it
+    set_state_(Ob2PCState::CLEAR);
     (void)trans_clear_();
     set_exiting_();
   }

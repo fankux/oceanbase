@@ -1678,8 +1678,6 @@ int ObLogStateMgr::reconfirm_to_taking_over_()
     revoke_leader_(revoke_type);
   } else if (OB_FAIL(on_leader_takeover_())) {
     CLOG_LOG(WARN, "on_leader_takeover_ failed, try again", K_(partition_key), K(ret));
-  } else if (OB_FAIL(sw_->leader_takeover())) {
-    CLOG_LOG(ERROR, "sw leader_active failed", K(ret), K(partition_key_));
   } else {
     reconfirm_->reset();
     // role_ = LEADER;
@@ -1802,7 +1800,7 @@ int ObLogStateMgr::on_leader_takeover_()
     // only LEADER need call on_leader_takeover
     role_change_time_ = ObTimeUtility::current_time();
     if (OB_FAIL(partition_service_->submit_pt_update_role_task(partition_key_))) {
-      CLOG_LOG(WARN, "ps_cb->submit_pt_update_task failed", K_(partition_key), K(ret));
+      CLOG_LOG(WARN, "ps_cb submit pt update role task failed", K_(partition_key), K(ret));
     }
   } else {
     int64_t before_takeover = ObTimeUtility::current_time();
@@ -1872,7 +1870,7 @@ int ObLogStateMgr::on_leader_revoke_()
     // only LEADER need call on_leader_revoke
     role_change_time_ = ObTimeUtility::current_time();
     if (OB_FAIL(partition_service_->submit_pt_update_role_task(partition_key_))) {
-      CLOG_LOG(WARN, "ps_cb->submit_pt_update_task failed", K_(partition_key), K(ret));
+      CLOG_LOG(WARN, "ps_cb submit pt update role task failed", K_(partition_key), K(ret));
     }
   } else {
     int64_t before_revoke = ObTimeUtility::current_time();

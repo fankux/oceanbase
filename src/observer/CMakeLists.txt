@@ -37,6 +37,7 @@ ob_set_subtarget(ob_server common
   ob_lease_state_mgr.cpp
   ob_partition_table_checker.cpp
   ob_partition_table_updater.cpp
+  ob_partition_location_updater.cpp
   ob_rebuild_flag_reporter.cpp
   ob_root_service_monitor.cpp
   ob_rpc_extra_payload.cpp
@@ -237,6 +238,16 @@ ob_set_subtarget(ob_server vt
   virtual_table/ob_all_virtual_reserved_table_mgr.cpp
   virtual_table/ob_all_virtual_dag_warning_history.cpp
   virtual_table/ob_all_virtual_backupset_history_mgr.cpp
+)
+
+ob_set_subtarget(ob_server table
+  table/ob_table_batch_execute_processor.cpp		
+  table/ob_table_end_trans_cb.cpp		
+  table/ob_table_execute_processor.cpp		
+  table/ob_table_query_processor.cpp		
+  table/ob_table_rpc_processor.cpp		
+  table/ob_table_service.cpp		
+  table/ob_table_api_row_iterator.cpp
 )
 
 ob_server_add_pchs(observer

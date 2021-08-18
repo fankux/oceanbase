@@ -3072,6 +3072,38 @@ int ObStringExprOperator::convert_result_collation(
   return ret;
 }
 
+// for calc result type and length for function date_format and time_format.
+void ObStringExprOperator::calc_temporal_format_result_length(
+      ObExprResType &type, const ObExprResType &format) const
+{
+  const int64_t VARCHAR_RES_MAX_PARAM_LENGTH = 17;
+  const int64_t TEXT_RES_MAX_PARAM_LENGTH = 728;
+  const int64_t MAX_VARCHAR_BUFFER_SIZE = 256;
+  if (ob_is_string_tc(format.get_type())) {
+    // consistent with Mysql, result_length / format_length = 30
+    const int64_t ratio = 30;
+    if (format.get_length() <= VARCHAR_RES_MAX_PARAM_LENGTH) {
+      type.set_varchar();
+      type.set_length(format.get_length() * ratio);
+    } else if (format.get_length() < TEXT_RES_MAX_PARAM_LENGTH) {
+      type.set_type(ObTextType);
+    } else {
+      type.set_type(ObLongTextType);
+    }
+  } else if (ob_is_text_tc(format.get_type())) {
+    type.set_type(ObTinyTextType == format.get_type() ? ObTextType : ObLongTextType);
+  } else {
+    type.set_varchar();
+    type.set_length(MAX_VARCHAR_BUFFER_SIZE);
+  }
+  if (is_mysql_mode() && ob_is_text_tc(type.get_type())) {
+    const int32_t mbmaxlen = 4;
+    const int32_t default_text_length = ObAccuracy::DDL_DEFAULT_ACCURACY[type.get_type()].get_length() / mbmaxlen;
+    // need to set a correct length for text tc in mysql mode
+    type.set_length(default_text_length);
+  }
+}
+
 ObObjType ObStringExprOperator::get_result_type_mysql(int64_t char_length) const
 {
   /*
@@ -4750,8 +4782,10 @@ int ObRelationalExprOperator::cg_row_cmp_expr(const int row_dimension, ObIAlloca
         ret = OB_ERR_UNEXPECTED;
         LOG_WARN("unexpected error", K(ret));
       }
-
-      if (OB_UNLIKELY(left_row->arg_cnt_ != right_row->arg_cnt_)) {
+      if (OB_ISNULL(right_row) || OB_ISNULL(left_row)) {
+        ret = OB_ERR_UNEXPECTED;
+        LOG_WARN("right_row or left_row is null ptr", K(ret), K(right_row), K(left_row));
+      } else if (OB_UNLIKELY(left_row->arg_cnt_ != right_row->arg_cnt_)) {
         ret = OB_ERR_UNEXPECTED;
         LOG_WARN("unexpected row cnt", K(left_row->arg_cnt_), K(right_row->arg_cnt_));
       }

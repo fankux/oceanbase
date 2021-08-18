@@ -10,6 +10,7 @@
  * See the Mulan PubL v2 for more details.
  */
 
+#include <cstdio>
 #include "lib/utility/ob_print_utils.h"
 #include "lib/alloc/malloc_hook.h"
 #include "share/ob_tenant_mgr.h"
@@ -26,20 +27,13 @@
 int64_t get_virtual_memory_used()
 {
   constexpr int BUFFER_SIZE = 128;
-  char buf[BUFFER_SIZE];
-  snprintf(buf, BUFFER_SIZE, "/proc/%d/status", getpid());
-  std::ifstream status(buf);
-  int64_t used = 0;
-  while (status && 0 == used) {
-    status >> buf;
-    if (strncmp(buf, "VmSize:", BUFFER_SIZE) == 0) {
-      status >> buf;
-      used = std::stoi(buf);
-    } else {
-      status.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    }
-  }
-  return used * 1024;
+  char filename[BUFFER_SIZE];
+  int64_t page_cnt = 0;
+  snprintf(filename, BUFFER_SIZE, "/proc/%d/statm", getpid());
+  FILE* statm = fopen(filename, "r");
+  fscanf(statm, "%ld", &page_cnt);
+  fclose(statm);
+  return page_cnt * sysconf(_SC_PAGESIZE);
 }
 
 namespace oceanbase {
@@ -200,31 +194,11 @@ using namespace oceanbase::storage;
 void get_tenant_ids(uint64_t* ids, int cap, int& cnt)
 {
   int ret = OB_SUCCESS;
+  auto *instance = ObMallocAllocator::get_instance();
   cnt = 0;
-  omt::ObMultiTenant* omt = GCTX.omt_;
-  if (OB_ISNULL(omt)) {
-    if (ObTenantManager::get_instance().is_inited()) {
-      common::ObArray<uint64_t> tmp_ids;
-      if (OB_FAIL(ObTenantManager::get_instance().get_all_tenant_id(tmp_ids))) {
-        SERVER_LOG(WARN, "get tenant id error", K(ret));
-      } else {
-        for (auto it = tmp_ids.begin(); OB_SUCC(ret) && it != tmp_ids.end() && cnt < cap; it++) {
-          ids[cnt++] = *it;
-        }
-      }
-    } else {
-      if (cnt < cap) {
-        ids[cnt++] = OB_SYS_TENANT_ID;
-      }
-      if (cnt < cap) {
-        ids[cnt++] = OB_SERVER_TENANT_ID;
-      }
-    }
-  } else {
-    omt::TenantIdList tmp_ids(nullptr, ObModIds::OMT);
-    omt->get_tenant_ids(tmp_ids);
-    for (auto it = tmp_ids.begin(); OB_SUCC(ret) && it != tmp_ids.end() && cnt < cap; it++) {
-      ids[cnt++] = *it;
+  for (uint64_t tenant_id = 1; tenant_id <= ObMallocAllocator::get_max_used_tenant_id() && cnt < cap; ++tenant_id) {
+    if (nullptr != instance->get_tenant_ctx_allocator(tenant_id, 0)) {
+      ids[cnt++] = tenant_id;
     }
   }
 }

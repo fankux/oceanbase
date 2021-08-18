@@ -477,7 +477,6 @@ int ObDatumHexUtils::unhex(const ObExpr& expr, const ObString& in_str, ObEvalCtx
     ret = OB_ALLOCATE_MEMORY_FAILED;
     LOG_WARN("alloc memory failed", K(alloc_length), K(ret));
   } else {
-    bool all_valid_char = true;
     int32_t i = 0;
     char c1 = 0;
     char c2 = 0;
@@ -492,27 +491,23 @@ int ObDatumHexUtils::unhex(const ObExpr& expr, const ObString& in_str, ObEvalCtx
         i = 1;
       }
     }
-    while (OB_SUCC(ret) && all_valid_char && i < in_str.length()) {
+    while (OB_SUCC(ret) && i < in_str.length()) {
       if (isxdigit(c1) && isxdigit(c2)) {
         buf[i / 2] = (char)((get_xdigit(c1) << 4) | get_xdigit(c2));
         c1 = in_str[++i];
         c2 = in_str[++i];
-      } else if (lib::is_oracle_mode()) {
+      } else {
         ret = OB_ERR_INVALID_HEX_NUMBER;
         LOG_WARN("invalid hex number", K(ret), K(c1), K(c2), K(in_str));
-      } else {
-        all_valid_char = false;
-        res_datum.set_null();
       }
     }
-    if (OB_SUCC(ret) && all_valid_char) {
+    if (OB_SUCC(ret)) {
       ObString str_res(tmp_length, buf);
       // There will be no zero fill in the unhex() function, so it is directly assigned here
       res_datum.pack_ = tmp_length;
       res_datum.ptr_ = buf;
     }
   }
-
   return ret;
 }
 
@@ -1348,8 +1343,9 @@ static int common_floating_string(
   return ret;
 }
 
-static int common_number_datetime(
-    const number::ObNumber nmb, const ObObjType out_type, const ObTimeConvertCtx& cvrt_ctx, int64_t& out_val);
+static int common_number_datetime(const number::ObNumber nmb,
+                                  const ObTimeConvertCtx &cvrt_ctx, int64_t &out_val,
+                                  const ObCastMode cast_mode);
 
 static OB_INLINE int common_double_datetime(
     const ObExpr& expr, const double val_double, ObEvalCtx& ctx, ObDatum& res_datum)
@@ -1379,7 +1375,7 @@ static OB_INLINE int common_double_datetime(
         ret = OB_INVALID_DATE_VALUE;
       }
     } else {
-      ret = common_number_datetime(number, out_type, cvrt_ctx, out_val);
+      ret = common_number_datetime(number, cvrt_ctx, out_val, expr.extra_);
       if (CAST_FAIL(ret)) {
         LOG_WARN("str_to_datetime failed", K(ret));
       } else {
@@ -1494,22 +1490,36 @@ static OB_INLINE int common_construct_otimestamp(
   return ret;
 }
 
-static int common_number_datetime(
-    const number::ObNumber nmb, const ObObjType out_type, const ObTimeConvertCtx& cvrt_ctx, int64_t& out_val)
+static int common_number_datetime(const number::ObNumber nmb,
+                                  const ObTimeConvertCtx &cvrt_ctx,
+                                  int64_t &out_val,
+                                  const ObCastMode cast_mode)
 {
   int ret = OB_SUCCESS;
   int64_t int_part = 0;
   int64_t dec_part = 0;
+  const int64_t three_digit_min = 100;
+  const int64_t eight_digit_max = 99999999;
   if (nmb.is_negative()) {
     ret = OB_INVALID_DATE_VALUE;
     LOG_WARN("invalid datetime value", K(ret), K(nmb));
-  } else if ((ObTimestampType == out_type && nmb.is_decimal())) {
-    ret = OB_INVALID_DATE_VALUE;
-    LOG_WARN("invalid date format", K(ret), K(nmb));
   } else if (!nmb.is_int_parts_valid_int64(int_part, dec_part)) {
     ret = OB_INVALID_DATE_VALUE;
     LOG_WARN("invalid date format", K(ret), K(nmb));
-  } else {
+  // Maybe we need a new framework to make precise control on whether we report an error,
+  // instead of calling a function and check the return value and cast_mode,
+  // then we can move this logic to ObTimeConverter::int_to_datetime.
+  } else if (OB_UNLIKELY(dec_part != 0
+	              && ((0 == int_part && cvrt_ctx.is_timestamp_)
+                  || (int_part >= three_digit_min && int_part <= eight_digit_max)))) {
+    if (CM_IS_COLUMN_CONVERT(cast_mode) && !CM_IS_WARN_ON_FAIL(cast_mode)) {
+      ret = OB_INVALID_DATE_VALUE;
+      LOG_WARN("invalid date value", K(ret), K(nmb));
+    } else {
+      dec_part = 0;
+    }
+  }
+  if (OB_SUCC(ret)) {
     ret = ObTimeConverter::int_to_datetime(int_part, dec_part, cvrt_ctx, out_val);
   }
   return ret;
@@ -2229,7 +2239,7 @@ CAST_FUNC_NAME(number, datetime)
       ObObjType out_type = expr.datum_meta_.type_;
       ObTimeConvertCtx cvrt_ctx(session->get_timezone_info(), ObTimestampType == out_type);
       int64_t out_val = 0;
-      ret = common_number_datetime(nmb, out_type, cvrt_ctx, out_val);
+      ret = common_number_datetime(nmb, cvrt_ctx, out_val, expr.extra_);
       int warning = OB_SUCCESS;
       if (CAST_FAIL(ret)) {
       } else {
@@ -2258,18 +2268,16 @@ CAST_FUNC_NAME(number, date)
     } else {
       ret = ObTimeConverter::int_to_date(int_part, out_val);
       if (OB_SUCC(ret) && OB_UNLIKELY(dec_part > 0)) {
-        LOG_WARN("invalid date value with decimal part", K(ret));
-        if (!CM_IS_WARN_ON_FAIL(expr.extra_)) {
+        if (CM_IS_COLUMN_CONVERT(expr.extra_) && !CM_IS_WARN_ON_FAIL(expr.extra_)) {
           ret = OB_INVALID_DATE_VALUE;
+          LOG_WARN("invalid date value with decimal part", K(ret));
         }
       }
-      LOG_DEBUG("stt, end common number date", K(int_part), K(dec_part), K(out_val), K(ret));
     }
 
     if (CAST_FAIL(ret)) {
     } else {
       SET_RES_DATE(out_val);
-      LOG_DEBUG("stt, number to date", K(nmb), K(out_val), K(ret), K(warning));
     }
   }
   return ret;

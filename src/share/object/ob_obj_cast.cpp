@@ -517,7 +517,6 @@ int ObHexUtils::unhex(const ObString& text, ObCastCtx& cast_ctx, ObObj& result)
     ret = OB_ALLOCATE_MEMORY_FAILED;
     LOG_ERROR("alloc memory failed", K(alloc_length), K(ret));
   } else {
-    bool all_valid_char = true;
     int32_t i = 0;
     char c1 = 0;
     char c2 = 0;
@@ -532,21 +531,18 @@ int ObHexUtils::unhex(const ObString& text, ObCastCtx& cast_ctx, ObObj& result)
         i = 1;
       }
     }
-    while (OB_SUCC(ret) && all_valid_char && i < text.length()) {
+    while (OB_SUCC(ret) && i < text.length()) {
       if (isxdigit(c1) && isxdigit(c2)) {
         buf[i / 2] = (char)((get_xdigit(c1) << 4) | get_xdigit(c2));
         c1 = text[++i];
         c2 = text[++i];
-      } else if (lib::is_oracle_mode()) {
+      } else {
         ret = OB_ERR_INVALID_HEX_NUMBER;
         LOG_WARN("invalid hex number", K(ret), K(c1), K(c2), K(text));
-      } else {
-        all_valid_char = false;
-        result.set_null();
       }
     }
 
-    if (OB_SUCC(ret) && all_valid_char) {
+    if (OB_SUCC(ret)) {
       str_result.assign_ptr(buf, tmp_length);
       result.set_varchar(str_result);
     }
@@ -2244,6 +2240,8 @@ static int number_datetime(
     const ObObjType expect_type, ObObjCastParams& params, const ObObj& in, ObObj& out, const ObCastMode cast_mode)
 {
   int ret = OB_SUCCESS;
+  const int64_t three_digit_min = 100;
+  const int64_t eight_digit_max = 99999999;
   if (OB_UNLIKELY(ObNumberTC != in.get_type_class() || ObDateTimeTC != ob_obj_type_class(expect_type))) {
     ret = OB_ERR_UNEXPECTED;
     LOG_ERROR("invalid input type", K(ret), K(in), K(expect_type));
@@ -2255,13 +2253,20 @@ static int number_datetime(
     if (in.get_number().is_negative()) {
       ret = OB_INVALID_DATE_FORMAT;
       LOG_WARN("invalid date format", K(ret), K(in), K(cast_mode));
-    } else if ((ObTimestampType == expect_type && in.get_number().is_decimal())) {
+    } else if (!in.get_number().is_int_parts_valid_int64(int_part,dec_part)) {
       ret = OB_INVALID_DATE_FORMAT;
       LOG_WARN("invalid date format", K(ret), K(in), K(cast_mode));
-    } else if (!in.get_number().is_int_parts_valid_int64(int_part, dec_part)) {
-      ret = OB_INVALID_DATE_FORMAT;
-      LOG_WARN("invalid date format", K(ret), K(in), K(cast_mode));
-    } else {
+    } else if (OB_UNLIKELY(dec_part != 0
+              && ((0 == int_part && ObTimestampType == expect_type)
+                  || (int_part >= three_digit_min && int_part <= eight_digit_max)))) {
+      if (CM_IS_COLUMN_CONVERT(cast_mode) && !CM_IS_WARN_ON_FAIL(cast_mode)) {
+        ret = OB_INVALID_DATE_VALUE;
+        LOG_WARN("invalid date value", K(ret));
+      } else {
+        dec_part = 0;
+      }
+    }
+    if (OB_SUCC(ret)) {
       ret = ObTimeConverter::int_to_datetime(int_part, dec_part, cvrt_ctx, value);
       LOG_DEBUG("succ to number_datetime", K(ret), K(in), K(value), K(expect_type), K(int_part), K(dec_part));
     }
@@ -2325,9 +2330,9 @@ static int number_date(
     } else {
       ret = ObTimeConverter::int_to_date(int_part, value);
       if (OB_SUCC(ret) && OB_UNLIKELY(dec_part > 0)) {
-        LOG_WARN("invalid date value with decimal part", K(ret));
-        if (!CM_IS_WARN_ON_FAIL(cast_mode)) {
+        if (CM_IS_COLUMN_CONVERT(cast_mode) && !CM_IS_WARN_ON_FAIL(cast_mode)) {
           ret = OB_INVALID_DATE_VALUE;
+          LOG_WARN("invalid date value with decimal part", K(ret));
         }
       }
     }

@@ -211,21 +211,6 @@ void ObLogSlidingWindow::destroy_aggre_buffer()
   }
 }
 
-int ObLogSlidingWindow::leader_takeover()
-{
-  int ret = OB_SUCCESS;
-  if (IS_NOT_INIT) {
-    ret = OB_NOT_INIT;
-    CLOG_LOG(ERROR, "ObPartitionLogService is not inited", K(ret), K(partition_key_));
-  } else {
-    uint64_t max_log_id = OB_INVALID_ID;
-    int64_t max_log_ts = OB_INVALID_TIMESTAMP;
-    get_max_log_id_info(max_log_id, max_log_ts);
-    try_update_max_majority_log(max_log_id, max_log_ts);
-  }
-  return ret;
-}
-
 int ObLogSlidingWindow::leader_active()
 {
   int ret = OB_SUCCESS;
@@ -2217,6 +2202,10 @@ void ObLogSlidingWindow::try_update_next_replay_log_info(
     LOAD128(last, &next_replay_log_id_info_);
     if (next.hi <= last.hi && next.lo <= last.lo) {
       break;
+    } else if (is_nop_or_truncate_log && next.hi > last.hi && next.lo < last.lo) {
+      // last.lo has been pulled up with keepalive message; need to update log_id
+      next.hi = log_id;
+      next.lo = last.lo;
     } else if (next.hi < last.hi || next.lo < last.lo) {
       if (!is_nop_or_truncate_log) {
         CLOG_LOG(ERROR,
@@ -2228,7 +2217,12 @@ void ObLogSlidingWindow::try_update_next_replay_log_info(
             K(next.lo));
       }
       break;
-    } else if (CAS128(&next_replay_log_id_info_, last, next)) {
+    } else {
+      //(next.hi >= last.hi && next.lo > last.lo) || (next.hi > last.hi && next.lo >= last.lo)
+      // need update
+    }
+    // need update
+    if (CAS128(&next_replay_log_id_info_, last, next)) {
       break;
     } else {
       PAUSE();
