@@ -3093,6 +3093,19 @@ int ObSql::after_get_plan(ObPlanCacheCtx& pc_ctx, ObSQLSessionInfo& session, ObP
         }
       }
     }
+    if (NULL != phy_plan && !session.get_is_deserialized()) {
+      if (phy_plan->is_contain_oracle_session_level_temporary_table()) {
+        bool is_already_set = false;
+        if (OB_FAIL(session.get_session_temp_table_used(is_already_set))) {
+          LOG_WARN("fail to get session temp table used", K(ret));
+        } else if (is_already_set) {
+          // do nothing
+        } else if (OB_FAIL(session.set_session_temp_table_used(true))) {
+          LOG_WARN("fail to set session temp table used", K(ret));
+        }
+        LOG_DEBUG("plan contain oracle session level temporary table detected", K(is_already_set));
+      }
+    }
   } else {
     // not phy_plan, ignore
   }
@@ -3170,8 +3183,10 @@ int ObSql::handle_physical_plan(
   } else if (context.multi_stmt_item_.is_batched_multi_stmt() && is_valid && session.use_static_typing_engine()) {
     ret = STATIC_ENG_NOT_IMPLEMENT;
     LOG_WARN("static engine not implement batched multi stmt, will retry", K(ret));
-  } else if (OB_FAIL(generate_sql_id(pc_ctx, add_plan_to_pc))) {
-    LOG_WARN("fail to generate sql id", K(ret));
+  }
+  generate_sql_id(pc_ctx, add_plan_to_pc, ret);
+  if (OB_FAIL(ret)) {
+    // do nothing
   } else if (OB_FAIL(generate_physical_plan(parse_result, &pc_ctx, context, result))) {
     if (OB_ERR_PROXY_REROUTE == ret) {
       LOG_DEBUG("Failed to generate plan", K(ret));
@@ -3399,16 +3414,14 @@ int ObSql::replace_const_expr(ObRawExpr* raw_expr, ParamStore& param_store)
   return ret;
 }
 
-int ObSql::generate_sql_id(ObPlanCacheCtx& pc_ctx, bool add_plan_to_pc)
+void ObSql::generate_sql_id(ObPlanCacheCtx &pc_ctx, bool add_plan_to_pc, int err_code)
 {
-  int ret = OB_SUCCESS;
-  if (add_plan_to_pc == false || pc_ctx.is_ps_mode_) {
+  if (add_plan_to_pc == false || pc_ctx.is_ps_mode_ || OB_SUCCESS != err_code) {
     (void)ObSQLUtils::md5(pc_ctx.raw_sql_, pc_ctx.sql_ctx_.sql_id_, (int32_t)sizeof(pc_ctx.sql_ctx_.sql_id_));
   } else {
     (void)ObSQLUtils::md5(
         pc_ctx.bl_key_.constructed_sql_, pc_ctx.sql_ctx_.sql_id_, (int32_t)sizeof(pc_ctx.sql_ctx_.sql_id_));
   }
-  return ret;
 }
 
 int ObSql::calc_pre_calculable_exprs(const ObDMLStmt& stmt, const ObIArray<ObHiddenColumnItem>& calculable_exprs,

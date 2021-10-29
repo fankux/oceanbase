@@ -65,6 +65,7 @@
 #include "sql/engine/expr/ob_expr_not_in.h"
 #include "sql/engine/expr/ob_expr_int2ip.h"
 #include "sql/engine/expr/ob_expr_ip2int.h"
+#include "sql/engine/expr/ob_expr_inet.h"
 #include "sql/engine/expr/ob_expr_last_exec_id.h"
 #include "sql/engine/expr/ob_expr_last_trace_id.h"
 #include "sql/engine/expr/ob_expr_is.h"
@@ -169,6 +170,7 @@
 #include "sql/engine/expr/ob_expr_reverse.h"
 #include "sql/engine/expr/ob_expr_right.h"
 #include "sql/engine/expr/ob_expr_md5.h"
+#include "sql/engine/expr/ob_expr_crc32.h"
 #include "sql/engine/expr/ob_expr_lrpad.h"
 #include "sql/engine/expr/ob_expr_conv.h"
 #include "sql/engine/expr/ob_expr_sign.h"
@@ -266,6 +268,8 @@
 #include "sql/engine/expr/ob_expr_quarter.h"
 #include "sql/engine/expr/ob_expr_bit_length.h"
 #include "sql/engine/expr/ob_expr_convert_tz.h"
+#include "sql/engine/expr/ob_expr_degrees.h"
+#include "sql/engine/expr/ob_expr_weight_string.h"
 
 using namespace oceanbase::common;
 namespace oceanbase {
@@ -446,6 +450,13 @@ void ObExprOperatorFactory::register_expr_operators()
   REG_OP(ObExprNotIn);
   REG_OP(ObExprInt2ip);
   REG_OP(ObExprIp2int);
+  REG_OP(ObExprInetAton);
+  REG_OP(ObExprInet6Ntoa);
+  REG_OP(ObExprInet6Aton);
+  REG_OP(ObExprIsIpv4);
+  REG_OP(ObExprIsIpv6);
+  REG_OP(ObExprIsIpv4Mapped);
+  REG_OP(ObExprIsIpv4Compat);
   REG_OP(ObExprInsert);
   REG_OP(ObExprIs);
   REG_OP(ObExprIsNot);
@@ -621,6 +632,7 @@ void ObExprOperatorFactory::register_expr_operators()
   REG_OP(ObExprIfNull);
   REG_OP(ObExprConcatWs);
   REG_OP(ObExprCmpMeta);
+  REG_OP(ObExprCrc32);
   REG_OP(ObExprQuote);
   REG_OP(ObExprPad);
   REG_OP(ObExprHostIP);
@@ -667,6 +679,8 @@ void ObExprOperatorFactory::register_expr_operators()
   REG_OP(ObExprLastDay);
   REG_OP(ObExprTimeFormat);
   REG_OP(ObExprTimestamp);
+  REG_OP(ObExprDegrees);
+  REG_OP(ObExprWeightString);
   // register oracle system function
   REG_OP_ORCL(ObExprSysConnectByPath);
   REG_OP_ORCL(ObExprTimestampNvl);

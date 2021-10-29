@@ -272,7 +272,8 @@ public:
       const common::ObProposalID& proposal_id, const ObPushLogMode push_mode, const ReceiveLogType type) = 0;
   virtual int receive_renew_ms_log(const ObLogEntry& log_entry, const ObAddr& server, const int64_t cluster_id,
       const ObProposalID& proposal_id, const ReceiveLogType type) = 0;
-  virtual int receive_archive_log(const ObLogEntry& log_entry, const bool is_batch_committed) = 0;
+  virtual int receive_archive_log(const ObLogEntry& log_entry, const bool is_accum_checksum_valid,
+      const int64_t accum_checksum, const bool is_batch_committed) = 0;
   virtual int ack_log(const common::ObAddr& server, const uint64_t log_id, const common::ObProposalID& proposal_id) = 0;
   virtual int standby_ack_log(
       const ObAddr& server, const int64_t cluster_id, const uint64_t log_id, const ObProposalID& proposal_id) = 0;
@@ -318,6 +319,7 @@ public:
   virtual int leader_keepalive(const int64_t keepalive_interval) = 0;
   virtual int sync_log_archive_progress() = 0;
   virtual int get_log_archive_status(ObPGLogArchiveStatus& status) = 0;
+  virtual int check_log_exist(const uint64_t log_id, bool& exist) = 0;
   virtual int check_cascading_state() = 0;
   virtual int archive_checkpoint(const int64_t interval) = 0;
   virtual int set_next_index_log_id(const uint64_t log_id, const int64_t accum_checksum) = 0;
@@ -545,7 +547,8 @@ public:
       const common::ObProposalID& proposal_id, const ObPushLogMode push_mode, const ReceiveLogType type) override;
   virtual int receive_renew_ms_log(const ObLogEntry& log_entry, const ObAddr& server, const int64_t cluster_id,
       const ObProposalID& proposal_id, const ReceiveLogType type) override;
-  virtual int receive_archive_log(const ObLogEntry& log_entry, const bool is_batch_committed) override;
+  virtual int receive_archive_log(const ObLogEntry& log_entry, const bool is_accum_checksum_valid,
+      const int64_t accum_checksum, const bool is_batch_committed) override;
   virtual int ack_log(
       const common::ObAddr& server, const uint64_t log_id, const common::ObProposalID& proposal_id) override;
   virtual int standby_ack_log(
@@ -555,7 +558,7 @@ public:
       const ObProposalID& ms_proposal_id) override;
   virtual int fake_receive_log(const ObAddr& server, const uint64_t log_id, const ObProposalID& proposal_id) override;
   virtual int process_restore_check_req(
-      const common::ObAddr& server, const int64_t cluster_id, const ObRestoreCheckType restore_type);
+      const common::ObAddr& server, const int64_t cluster_id, const ObRestoreCheckType restore_type) override;
   virtual int get_log(const common::ObAddr& server, const uint64_t log_id, const int64_t log_num,
       const ObFetchLogType fetch_type, const common::ObProposalID& proposal_id, const int64_t cluster_id,
       const common::ObReplicaType replica_type, const int64_t network_limit,
@@ -595,6 +598,7 @@ public:
   virtual int leader_keepalive(const int64_t keepalive_interval) override;
   virtual int sync_log_archive_progress() override;
   virtual int get_log_archive_status(ObPGLogArchiveStatus& status) override;
+  virtual int check_log_exist(const uint64_t log_id, bool& exist);
   virtual int check_cascading_state() override;
   virtual int archive_checkpoint(const int64_t interval) override;
   virtual int set_next_index_log_id(const uint64_t log_id, const int64_t accum_checksum) override;
@@ -790,7 +794,7 @@ private:
   int response_sliding_window_info_(const common::ObAddr& server, const bool is_leader);
   int process_replica_type_change_();
   int process_reject_msg(
-      const common::ObAddr& server, const int64_t cluster_id, const int32_t msg_type, const int64_t timestamp);
+      const common::ObAddr& server, const int64_t cluster_id, const int32_t msg_type, const int64_t timestamp) override;
   int process_reregister_msg(
       const common::ObAddr& src_server, const share::ObCascadMember& new_leader, const int64_t send_ts) override;
   int process_restore_alive_msg(const common::ObAddr& server, const uint64_t start_log_id) override;

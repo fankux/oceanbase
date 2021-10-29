@@ -112,7 +112,7 @@ public:
       const common::ObPartitionKey& self, ObITransCtxMgr* ctx_mgr, const ObStartTransParam& trans_param,
       const uint64_t cluster_version, ObTransService* trans_service, const uint64_t cluster_id,
       const int64_t leader_epoch, const bool can_elr);
-  virtual void destroy();
+  virtual void destroy() override;
   void reset();
   int construct_context(const ObTransMsg& msg);
 
@@ -125,13 +125,13 @@ public:
   int end_task_(
       const bool is_rollback, const ObTransDesc& trans_desc, const int64_t sql_no, const int64_t stmt_min_sql_no);
   int handle_message(const ObTransMsg& msg);
-  bool is_inited() const;
-  int handle_timeout(const int64_t delay);
+  bool is_inited() const override;
+  int handle_timeout(const int64_t delay) override;
   int get_end_trans_callback_item(ObEndTransCallbackArray& cb_array);
   /*
    * graceful kill: wait trx finish logging
    */
-  int kill(const KillTransArg& arg, ObEndTransCallbackArray& cb_array);
+  int kill(const KillTransArg& arg, ObEndTransCallbackArray& cb_array) override;
   int wait_1pc_trx_end_in_spliting(bool& trx_end);
   int check_cur_partition_split_(bool& is_split_partition);
   memtable::ObMemtableCtx* get_memtable_ctx()
@@ -139,14 +139,14 @@ public:
     return &mt_ctx_;
   }
   int set_memtable_ctx(memtable::ObIMemtableCtx* mt_ctx);
-  int leader_revoke(const bool first_check, bool& need_release, ObEndTransCallbackArray& cb_array);
-  int leader_takeover(const int64_t checkpoint);
-  int leader_active(const storage::LeaderActiveArg& arg);
-  bool can_be_freezed() const;
+  int leader_revoke(const bool first_check, bool& need_release, ObEndTransCallbackArray& cb_array) override;
+  int leader_takeover(const int64_t checkpoint) override;
+  int leader_active(const storage::LeaderActiveArg& arg) override;
+  bool can_be_freezed() const override;
   int kill_trans(bool& need_convert_to_dist_trans);
   int commit(const bool is_rollback, sql::ObIEndTransCallback* cb, bool is_readonly, const MonotonicTs commit_time,
       const int64_t stmt_expired_time, const ObStmtRollbackInfo& stmt_rollback_info,
-      const common::ObString& app_trace_info, bool& need_convert_to_dist_trans);
+      const common::ObString& app_trace_info, bool& need_convert_to_dist_trans) override;
   int set_stmt_info(const ObTransStmtInfo& stmt_info);
   const ObTransStmtInfo& get_stmt_info() const
   {
@@ -171,21 +171,21 @@ public:
   {
     return get_global_trans_version_();
   }
-  uint64_t hash() const
+  uint64_t hash() const override
   {
     return trans_id_.hash();
   }
-  int get_gts_callback(const MonotonicTs srr, const int64_t gts, const MonotonicTs receive_gts_ts);
-  int gts_elapse_callback(const MonotonicTs srr, const int64_t gts);
-  MonotonicTs get_stc() const
+  int get_gts_callback(const MonotonicTs srr, const int64_t gts, const MonotonicTs receive_gts_ts) override;
+  int gts_elapse_callback(const MonotonicTs srr, const int64_t gts) override;
+  MonotonicTs get_stc() const override
   {
     return stc_;
   }
-  int64_t get_request_ts() const
+  int64_t get_request_ts() const override
   {
     return gts_request_ts_;
   }
-  uint64_t get_tenant_id() const
+  uint64_t get_tenant_id() const override
   {
     return tenant_id_;
   }
@@ -384,12 +384,12 @@ public:
     return stmt_info_.is_task_match();
   }
   void remove_trans_table();
-  int clear_trans_after_restore(
-      const int64_t restore_version, const uint64_t last_restore_log_id, const int64_t fake_terminate_log_ts);
+  int clear_trans_after_restore(const int64_t restore_version, const uint64_t last_restore_log_id,
+      const int64_t last_restore_log_ts, const int64_t fake_terminate_log_ts);
   bool is_in_trans_table_state();
   virtual int64_t get_part_trans_action() const override;
   int rollback_stmt(const int64_t from_sql_no, const int64_t to_sql_no);
-  bool need_update_schema_version(const int64_t log_id, const int64_t log_ts);
+  bool need_update_schema_version(const uint64_t log_id, const int64_t log_ts);
 
 public:
   INHERIT_TO_STRING_KV("ObDistTransCtx", ObDistTransCtx, K_(snapshot_version), K_(local_trans_version),
@@ -402,7 +402,7 @@ public:
       K(mt_ctx_.get_checksum_log_ts()), K_(is_changing_leader), K_(has_trans_state_log),
       K_(is_trans_state_sync_finished), K_(status), K_(same_leader_batch_partitions_count), K_(is_hazardous_ctx),
       K(mt_ctx_.get_callback_count()), K_(in_xa_prepare_state), K_(is_listener), K_(last_replayed_redo_log_id),
-      K_(is_xa_trans_prepared));
+      K_(status), K_(is_xa_trans_prepared));
 
 public:
   static const int64_t OP_LOCAL_NUM = 16;

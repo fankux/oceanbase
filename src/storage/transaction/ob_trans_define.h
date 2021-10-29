@@ -765,6 +765,14 @@ public:
   {
     return ((sql::stmt::T_SELECT == stmt_type_ && !is_sfu_) || sql::stmt::T_BUILD_INDEX_SSTABLE == stmt_type_);
   }
+  bool is_sfu() const
+  {
+    return is_sfu_;
+  }
+  sql::stmt::StmtType get_stmt_type() const
+  {
+    return stmt_type_;
+  }
   const char* get_sql_id() const
   {
     return sql_id_.ptr();
@@ -2268,6 +2276,21 @@ private:
   {}
 };
 
+class ObStmtType
+{
+public:
+  static const int64_t UNKNOWN = -1;
+  static const int64_t READ = 0;
+  static const int64_t SFU = 1;
+  static const int64_t WRITE = 2;
+public:
+  static bool is_valid(const int64_t stmt_type)
+  { return READ == stmt_type || SFU == stmt_type || WRITE == stmt_type; }
+private:
+  ObStmtType() {}
+  ~ObStmtType() {}
+};
+
 class Ob2PCState {
 public:
   static const int64_t UNKNOWN = -1;
@@ -3489,6 +3512,7 @@ public:
     mutator_log_no_ = 0;
     stmt_info_.reset();
     min_log_ts_ = 0;
+    min_log_id_ = 0;
     sp_user_request_ = 0;
     need_checksum_ = false;
     prepare_log_id_ = 0;
@@ -3504,7 +3528,7 @@ public:
       K_(app_trace_id_str), K_(partition_log_info_arr), K_(prev_trans_arr), K_(can_elr), K_(max_durable_log_ts),
       K_(global_trans_version), K_(commit_log_checksum), K_(state), K_(prepare_version), K_(max_durable_sql_no),
       K_(trans_type), K_(elr_prepared_state), K_(is_dup_table_trans), K_(redo_log_no), K_(mutator_log_no),
-      K_(stmt_info), K_(min_log_ts), K_(sp_user_request), K_(need_checksum), K_(prepare_log_id),
+      K_(stmt_info), K_(min_log_ts), K_(min_log_id), K_(sp_user_request), K_(need_checksum), K_(prepare_log_id),
       K_(prepare_log_timestamp));
   ObTransTableStatusInfo trans_table_info_;
   common::ObPartitionKey partition_;
@@ -3534,6 +3558,7 @@ public:
   int64_t mutator_log_no_;
   ObTransStmtInfo stmt_info_;
   int64_t min_log_ts_;
+  int64_t min_log_id_;
   int sp_user_request_;
   bool need_checksum_;
   int64_t prepare_log_id_;

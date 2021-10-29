@@ -202,6 +202,14 @@ int OB_INLINE ObExprOperator::cast_operand_type(
     LOG_DEBUG(
         "need cast operand", K(res_type), K(res_type.get_calc_meta().get_scale()), K(res_obj), K(res_obj.get_scale()));
     ObCastMode cast_mode = get_cast_mode();
+    // In PAD expression, we need add COLUMN_CONVERT to cast mode when cast is
+    // from bit to binary and column convert is set in column_conv_ctx_. The COLUMN_CONVERT
+    // cast mode is used in bit_to_string to decide which cast way is appropriate.
+    if (OB_UNLIKELY(T_FUN_PAD == get_type() && ob_is_bit_tc(param_type) &&
+                    ob_is_varbinary_type(calc_type, calc_collation_type) &&
+                    CM_IS_COLUMN_CONVERT(expr_ctx.column_conv_ctx_.cast_mode_))) {
+      cast_mode |= CM_COLUMN_CONVERT;
+    }
 
     if (ob_is_string_or_lob_type(res_type.get_calc_type()) && res_type.is_zerofill()) {
       // For zerofilled string
@@ -1412,7 +1420,7 @@ int ObRelationalExprOperator::compare_nullsafe(int64_t& result, const ObObj& obj
 }
 
 bool ObRelationalExprOperator::can_cmp_without_cast(
-    ObExprResType type1, ObExprResType type2, ObCmpOp cmp_op, const ObSQLSessionInfo& session)
+    const ObExprResType& type1, const ObExprResType& type2, ObCmpOp cmp_op, const ObSQLSessionInfo& session)
 {
   bool need_no_cast = false;
   if (ob_is_enum_or_set_type(type1.get_type()) && ob_is_enum_or_set_type(type2.get_type())) {
@@ -2222,10 +2230,7 @@ int ObSubQueryRelationalExpr::calc_resultN(
       tmp_row.count_ = param_num - 1;
       left_row = &tmp_row;
       const ObObj& idx_obj = param_array[param_num - 1];
-      if (OB_ISNULL(left_row)) {
-        ret = OB_INVALID_ARGUMENT;
-        LOG_WARN("left_row is null", K(left_row), K(ret));
-      } else if (OB_FAIL(idx_obj.get_int(subquery_idx))) {
+      if (OB_FAIL(idx_obj.get_int(subquery_idx))) {
         LOG_WARN("get subquery index failed", K(ret));
       } else if (T_WITH_ALL == subquery_key_) {
         if (OB_FAIL(calc_result_with_all(result, *left_row, subquery_idx, expr_ctx))) {
@@ -2584,7 +2589,6 @@ int ObSubQueryRelationalExpr::check_exists(const ObExpr& expr, ObEvalCtx& ctx, b
     ret = OB_ERR_UNEXPECTED;
     LOG_WARN("unexpected argument count", K(ret));
   } else if (OB_FAIL(expr.args_[0]->eval(ctx, v))) {
-    ret = OB_ERR_UNEXPECTED;
     LOG_WARN("NULL subquery ref info returned", K(ret));
   } else if (OB_FAIL(ObExprSubQueryRef::get_subquery_iter(
                  ctx, ObExprSubQueryRef::ExtraInfo::get_info(v->get_int()), iter))) {
@@ -3427,8 +3431,11 @@ int ObBitwiseExprOperator::calc_(
           LOG_WARN("failed to get int64", K(obj2), K(ret));
         } else {
           ObNumber result;
-          result.from((int64_v1 & int64_v2), *expr_ctx.calc_buf_);
-          res.set_number(result);
+          if (OB_FAIL(result.from((int64_v1 & int64_v2), *expr_ctx.calc_buf_))) {
+            LOG_WARN("get ObNumber from int64 failed", K(ret), K(int64_v1 & int64_v2));
+          } else {
+            res.set_number(result);
+          }
         }
       }
     }
@@ -3606,8 +3613,11 @@ int ObBitwiseExprOperator::get_int64_from_number_type(
 {
   int ret = OB_SUCCESS;
   int64_t tmp_int = 0;
-  number::ObNumber nmb(datum.get_number());
-  if (OB_UNLIKELY(!nmb.is_integer() && OB_FAIL(is_round ? nmb.round(0) : nmb.trunc(0)))) {
+  ObNumStackAllocator<> num_allocator;
+  number::ObNumber nmb;
+  if (OB_FAIL(nmb.from(datum.get_number(), num_allocator))) {
+    LOG_WARN("number copy failed", K(ret));
+  } else if (OB_UNLIKELY(!nmb.is_integer() && OB_FAIL(is_round ? nmb.round(0) : nmb.trunc(0)))) {
     LOG_WARN("round/trunc failed", K(ret), K(is_round), K(nmb));
   } else if (nmb.is_valid_int64(tmp_int)) {
     out = tmp_int;
@@ -3625,10 +3635,13 @@ int ObBitwiseExprOperator::get_uint64_from_number_type(
     const ObDatum& datum, bool is_round, uint64_t& out, const ObCastMode& cast_mode)
 {
   int ret = OB_SUCCESS;
-  number::ObNumber nmb(datum.get_number());
+  ObNumStackAllocator<> num_allocator;
+  number::ObNumber nmb;
   int64_t tmp_int = 0;
   uint64_t tmp_uint = 0;
-  if (OB_UNLIKELY(!nmb.is_integer() && OB_FAIL(is_round ? nmb.round(0) : nmb.trunc(0)))) {
+  if (OB_FAIL(nmb.from(datum.get_number(), num_allocator))) {
+    LOG_WARN("number copy failed", K(ret));
+  } else if (OB_UNLIKELY(!nmb.is_integer() && OB_FAIL(is_round ? nmb.round(0) : nmb.trunc(0)))) {
     LOG_WARN("round/trunc failed", K(ret), K(is_round), K(nmb));
   } else if (nmb.is_valid_int64(tmp_int)) {
     out = static_cast<uint64_t>(tmp_int);

@@ -1264,33 +1264,34 @@ int ObCSVParser::next_line(bool& yield_line)
   bool yield = false;
   int with_back_slash = 0;
 
-  for (; !yield && cur_pos_ != buf_end_pos_; ++cur_pos_) {
-
+  for (; !yield && cur_pos_ < buf_end_pos_; ++cur_pos_, ++cur_field_end_pos_) {
+    bool line_term_matched = false;
     if (*cur_pos_ == formats_.enclose_char_ && !in_enclose_flag_ && cur_pos_ == cur_field_begin_pos_) {
       in_enclose_flag_ = true;
-    }
-
-    if (!is_escaped_flag_ && *cur_pos_ == formats_.escape_char_) {
-      is_escaped_flag_ = true;
+      last_end_enclosed_ = NULL;
+    } else if (cur_pos_ + 1 < buf_end_pos_ &&
+               ((*cur_pos_ == formats_.escape_char_ && formats_.escape_char_ != formats_.enclose_char_) ||
+                   (in_enclose_flag_ && formats_.enclose_char_ == *cur_pos_ &&
+                       formats_.enclose_char_ == *(cur_pos_ + 1)))) {
+      cur_pos_++;
+      if (!is_fast_parse_) {
+        *cur_field_end_pos_ = escaped_char(*cur_pos_, &with_back_slash);
+      }
     } else {
-      char escaped_res = *cur_pos_;
-      if (is_escaped_flag_) {
-        escaped_res = escaped_char(*cur_pos_, &with_back_slash);
-      }
       if (cur_field_end_pos_ != cur_pos_ && !is_fast_parse_) {
-        *cur_field_end_pos_ = escaped_res;
+        *cur_field_end_pos_ = *cur_pos_;
       }
-
-      bool line_term_matched = false;
-
-      if (is_terminate_char(*cur_pos_, cur_field_end_pos_, line_term_matched)) {
+      if (formats_.enclose_char_ == *cur_pos_) {
+        last_end_enclosed_ = cur_field_end_pos_;
+      } else if (is_terminate_char(*cur_pos_, cur_field_end_pos_, line_term_matched)) {
         if (!line_term_matched || cur_field_begin_pos_ < cur_pos_) {
-          handle_one_field(cur_field_end_pos_);
+          handle_one_field(cur_field_end_pos_, cur_field_end_pos_ != cur_pos_);
           field_id_++;
         }
         char* next_pos = cur_pos_ + 1;
         cur_field_begin_pos_ = next_pos;
         cur_field_end_pos_ = cur_pos_;
+        in_enclose_flag_ = false;
         if (line_term_matched && (!formats_.is_line_term_by_counting_field_ || field_id_ == total_field_nums_)) {
           if (OB_UNLIKELY(field_id_ != total_field_nums_)) {
             ret = deal_with_irregular_line();
@@ -1301,19 +1302,14 @@ int ObCSVParser::next_line(bool& yield_line)
           cur_line_begin_pos_ = next_pos;
         }
       }
-
-      if (is_escaped_flag_) {
-        is_escaped_flag_ = false;
-      }
-
-      ++cur_field_end_pos_;
     }
   }
 
   if (!yield && is_last_buf_ && cur_pos_ == buf_end_pos_) {
     if (cur_field_begin_pos_ < cur_pos_) {
       // new field, terminated with an eof
-      handle_one_field(cur_field_end_pos_);
+      bool has_escaped = cur_field_end_pos_ != cur_pos_;
+      handle_one_field(cur_field_end_pos_, has_escaped);
       field_id_++;
     }
     cur_field_begin_pos_ = cur_pos_;
@@ -1372,19 +1368,16 @@ int ObCSVParser::fast_parse_lines(
   if (OB_UNLIKELY(!buffer.is_valid())) {
     ret = OB_INVALID_ARGUMENT;
   } else if (formats.is_simple_format_) {
-    char* cur_pos = buffer.begin_ptr();
-    bool in_escaped = false;
-    for (char* p = buffer.begin_ptr(); p != buffer.current_ptr(); ++p) {
+    char *cur_pos = buffer.begin_ptr();
+    for (char *p = buffer.begin_ptr(); p < buffer.current_ptr(); ++p) {
       char cur_char = *p;
-      if (!in_escaped) {
-        if (formats.enclose_char_ == cur_char) {
-          in_escaped = true;
-        } else if (formats.line_term_char_ == cur_char) {
-          cur_lines++;
-          cur_pos = p + 1;
-          if (cur_lines >= line_count) {
-            break;
-          }
+      if (formats.escape_char_ == cur_char && p + 1 < buffer.current_ptr()) {
+        p++;
+      } else if (formats.line_term_char_ == cur_char) {
+        cur_lines++;
+        cur_pos = p + 1;
+        if (cur_lines >= line_count) {
+          break;
         }
       }
     }

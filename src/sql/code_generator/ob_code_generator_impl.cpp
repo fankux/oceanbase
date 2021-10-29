@@ -375,6 +375,11 @@ int ObCodeGeneratorImpl::set_other_properties(const ObLogPlan& log_plan, ObPhysi
             if (table_schema->is_oracle_sess_tmp_table()) {
               phy_plan.set_contain_oracle_session_level_temporary_table();
             }
+            LOG_DEBUG("plan contain temporary table",
+                "trx level",
+                table_schema->is_oracle_trx_tmp_table(),
+                "session level",
+                table_schema->is_oracle_sess_tmp_table());
           }
         }
       }
@@ -4104,6 +4109,7 @@ int ObCodeGeneratorImpl::convert_pdml_delete(ObLogDelete& op, const PhyOpsDesc& 
         pdml_delete->get_dml_row_desc().set_part_id_index(partition_expr_idx);
       }
       if (OB_SUCC(ret) && op.is_index_maintenance()) {
+        // find shadow pk expr and add it to out row desc and calc_exprs
         if (OB_FAIL(handle_pdml_shadow_pk(index_dml_info.column_exprs_, out_row_desc, out_row_desc, pdml_delete))) {
           LOG_WARN("failed to handle pdml shadow pk", K(ret), K(index_dml_info.column_exprs_));
         }

@@ -197,9 +197,14 @@ bool ObElectionPriority::is_in_election_blacklist() const
   return (system_score_ / 100) & SYSTEM_SCORE_IN_ELECTION_BLACKLIST;
 }
 
-void ObElectionPriority::set_system_clog_disk_error()
+void ObElectionPriority::set_system_disk_full()
 {
-  system_score_ += SYSTEM_SCORE_CLOG_DISK_ERROR * 100;
+  system_score_ += SYSTEM_SCORE_DISK_FULL * 100;
+}
+
+void ObElectionPriority::set_system_clog_disk_hang()
+{
+  system_score_ += SYSTEM_SCORE_CLOG_DISK_HANG * 100;
 }
 
 void ObElectionPriority::set_system_tenant_out_of_memory()
@@ -209,6 +214,12 @@ void ObElectionPriority::set_system_tenant_out_of_memory()
 
 void ObElectionPriority::set_system_data_disk_error()
 {
+  system_score_ += SYSTEM_SCORE_DATA_DISK_ERROR * 100;
+}
+
+void ObElectionPriority::set_system_slog_disk_warning()
+{
+  // slog use the same disk with sstable(data disk)
   system_score_ += SYSTEM_SCORE_DATA_DISK_ERROR * 100;
 }
 

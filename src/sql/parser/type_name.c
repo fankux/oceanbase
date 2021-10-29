@@ -320,7 +320,6 @@ const char* get_type_name(int type)
 	case T_FUN_SYS_TIME_TO_SEC : return "T_FUN_SYS_TIME_TO_SEC";
 	case T_FUN_SYS_SEC_TO_TIME : return "T_FUN_SYS_SEC_TO_TIME";
 	case T_FUN_SYS_INTERVAL : return "T_FUN_SYS_INTERVAL";
-	case T_FUN_SYS_CONVERT_TZ : return "T_FUN_SYS_CONVERT_TZ";
 	case T_FUN_UDF : return "T_FUN_UDF";
 	case T_FUN_SYS_SUBTIME : return "T_FUN_SYS_SUBTIME";
 	case T_FUN_SYS_SQRT : return "T_FUN_SYS_SQRT";
@@ -372,6 +371,16 @@ const char* get_type_name(int type)
 	case T_FUN_SYS_QUARTER : return "T_FUN_SYS_QUARTER";
 	case T_FUN_SYS_BIT_LENGTH : return "T_FUN_SYS_BIT_LENGTH";
 	case T_FUN_SYS_PI : return "T_FUN_SYS_PI";
+	case T_FUN_SYS_EXPORT_SET : return "T_FUN_SYS_EXPORT_SET";
+	case T_FUN_SYS_INET6NTOA : return "T_FUN_SYS_INET6NTOA";
+	case T_FUN_SYS_INET6ATON : return "T_FUN_SYS_INET6ATON";
+	case T_FUN_SYS_IS_IPV4 : return "T_FUN_SYS_IS_IPV4";
+	case T_FUN_SYS_IS_IPV6 : return "T_FUN_SYS_IS_IPV6";
+	case T_FUN_SYS_IS_IPV4_MAPPED : return "T_FUN_SYS_IS_IPV4_MAPPED";
+	case T_FUN_SYS_IS_IPV4_COMPAT : return "T_FUN_SYS_IS_IPV4_COMPAT";
+	case T_FUN_SYS_INETATON : return "T_FUN_SYS_INETATON";
+	case T_FUN_SYS_CRC32 : return "T_FUN_SYS_CRC32";
+	case T_FUN_SYS_WEIGHT_STRING : return "T_FUN_SYS_WEIGHT_STRING";
 	case T_MYSQL_ONLY_SYS_MAX_OP : return "T_MYSQL_ONLY_SYS_MAX_OP";
 	case T_FUN_SYS_CONNECT_BY_PATH : return "T_FUN_SYS_CONNECT_BY_PATH";
 	case T_FUN_SYS_SYSTIMESTAMP : return "T_FUN_SYS_SYSTIMESTAMP";
@@ -519,6 +528,7 @@ const char* get_type_name(int type)
 	case T_FUN_SYS_UTC_TIME : return "T_FUN_SYS_UTC_TIME";
 	case T_FUN_SYS_UTC_DATE : return "T_FUN_SYS_UTC_DATE";
 	case T_FUN_SYS_TIME_FORMAT : return "T_FUN_SYS_TIME_FORMAT";
+	case T_FUN_SYS_CONVERT_TZ : return "T_FUN_SYS_CONVERT_TZ";
 	case T_FUN_SYS_END : return "T_FUN_SYS_END";
 	case T_MAX_OP : return "T_MAX_OP";
 	case T_FUN_MATCH_AGAINST : return "T_FUN_MATCH_AGAINST";
@@ -833,6 +843,7 @@ const char* get_type_name(int type)
 	case T_SHOW_PROCEDURE_STATUS : return "T_SHOW_PROCEDURE_STATUS";
 	case T_SHOW_FUNCTION_STATUS : return "T_SHOW_FUNCTION_STATUS";
 	case T_SHOW_CREATE_TABLEGROUP : return "T_SHOW_CREATE_TABLEGROUP";
+	case T_SHOW_RESTORE_PREVIEW : return "T_SHOW_RESTORE_PREVIEW";
 	case T_SHOW_GRANTS : return "T_SHOW_GRANTS";
 	case T_SHOW_LIMIT : return "T_SHOW_LIMIT";
 	case T_CREATE_USER : return "T_CREATE_USER";
@@ -1553,7 +1564,18 @@ const char* get_type_name(int type)
 	case T_HASH_PARTITION_LIST : return "T_HASH_PARTITION_LIST";
 	case T_RANGE_PARTITION_LIST : return "T_RANGE_PARTITION_LIST";
 	case T_LIST_PARTITION_LIST : return "T_LIST_PARTITION_LIST";
-	case T_FUN_SYS_EXPORT_SET : return "T_FUN_SYS_EXPORT_SET";
+	case T_USER_RESOURCE_OPTIONS : return "T_USER_RESOURCE_OPTIONS";
+	case T_MAX_CONNECTIONS_PER_HOUR : return "T_MAX_CONNECTIONS_PER_HOUR";
+	case T_MAX_USER_CONNECTIONS : return "T_MAX_USER_CONNECTIONS";
+	case T_MAX_QUERIES_PER_HOUR : return "T_MAX_QUERIES_PER_HOUR";
+	case T_MAX_UPDATES_PER_HOUR : return "T_MAX_UPDATES_PER_HOUR";
+	case T_BACKUP_BACKUPSET : return "T_BACKUP_BACKUPSET";
+	case T_BACKUP_ARCHIVELOG : return "T_BACKUP_ARCHIVELOG";
+	case T_COPY_ID : return "T_COPY_ID";
+	case T_BACKUP_BACKUPPIECE : return "T_BACKUP_BACKUPPIECE";
+	case T_ADD_RESTORE_SOURCE : return "T_ADD_RESTORE_SOURCE";
+	case T_CLEAR_RESTORE_SOURCE : return "T_CLEAR_RESTORE_SOURCE";
+	case T_PREVIEW : return "T_PREVIEW";
 	default:return "Unknown";
 	}
 }

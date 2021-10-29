@@ -1203,17 +1203,7 @@ int ObLogSet::allocate_granule_post(AllocGIContext& ctx)
       LOG_WARN("set granule nodes affinity failed", K(ret));
     }
     LOG_TRACE("set right child gi to affinity");
-  } else if (DIST_PULL_TO_LOCAL == set_dist_algo_) {
-    ObLogicalOperator* op = NULL;
-    if (OB_FAIL(get_child(second_child)->find_first_recursive(LOG_GRANULE_ITERATOR, op))) {
-      LOG_WARN("find granule iterator in right failed", K(ret));
-    } else if (NULL == op) {
-      // granule iterator not found, do nothing
-    } else {
-      static_cast<ObLogGranuleIterator*>(op)->add_flag(GI_ACCESS_ALL);
-    }
-  } else { /*do nothing*/
-  }
+  } else { /*do nothing*/ }
 
   return ret;
 }
@@ -1295,6 +1285,23 @@ int ObLogSet::extra_set_exprs(ObIArray<ObRawExpr*>& set_exprs)
     LOG_WARN("failed to get set exprs", K(ret));
   } else if (OB_FAIL(ObTransformUtils::get_expr_in_cast(out_raw_exprs, set_exprs))) {
     LOG_WARN("failed to get expr in cast", K(ret));
+  }
+  return ret;
+}
+
+int ObLogSet::allocate_startup_expr_post()
+{
+  int ret = OB_SUCCESS;
+  if (ObSelectStmt::UNION == set_op_) {
+    // do nothing
+  } else if (ObSelectStmt::INTERSECT == set_op_) {
+    if (OB_FAIL(ObLogicalOperator::allocate_startup_expr_post())) {
+      LOG_WARN("failed to allocate startup expr post", K(ret));
+    }
+  } else if (ObSelectStmt::EXCEPT == set_op_) {
+    if (OB_FAIL(ObLogicalOperator::allocate_startup_expr_post(first_child))) {
+      LOG_WARN("failed to allocate startup expr post", K(ret));
+    }
   }
   return ret;
 }

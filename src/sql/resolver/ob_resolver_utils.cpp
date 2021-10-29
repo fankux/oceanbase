@@ -386,6 +386,7 @@ stmt::StmtType ObResolverUtils::get_stmt_type_by_item_type(const ObItemType item
     SET_STMT_TYPE(T_SHOW_INDEXES);
     SET_STMT_TYPE(T_SHOW_PROCESSLIST);
     SET_STMT_TYPE(T_SHOW_TABLEGROUPS);
+    SET_STMT_TYPE(T_SHOW_RESTORE_PREVIEW);
     SET_STMT_TYPE(T_SHOW_RECYCLEBIN);
     SET_STMT_TYPE(T_SHOW_TENANT);
     SET_STMT_TYPE(T_CREATE_SAVEPOINT);
@@ -3245,6 +3246,8 @@ int ObResolverUtils::resolve_generated_column_info(
           type = ObExprOperatorFactory::get_type_by_name("pow");
         } else if (0 == func_name.case_compare("ws")) {
           type = ObExprOperatorFactory::get_type_by_name("word_segment");
+        } else if (0 == func_name.case_compare("inet_ntoa")) {
+          type = ObExprOperatorFactory::get_type_by_name("int2ip");
         } else {
           type = ObExprOperatorFactory::get_type_by_name(func_name);
         }

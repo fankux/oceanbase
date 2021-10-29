@@ -222,6 +222,7 @@ ob_set_subtarget(ob_sql engine
   engine/expr/ob_expr_conv.cpp
   engine/expr/ob_expr_convert.cpp
   engine/expr/ob_expr_cosh.cpp
+  engine/expr/ob_expr_crc32.cpp
   engine/expr/ob_expr_timezone.cpp
   engine/expr/ob_expr_tz_offset.cpp
   engine/expr/ob_expr_from_tz.cpp
@@ -267,6 +268,8 @@ ob_set_subtarget(ob_sql engine
   engine/expr/ob_expr_greatest.cpp
   engine/expr/ob_expr_hex.cpp
   engine/expr/ob_expr_hextoraw.cpp
+  engine/expr/ob_expr_weight_string.h
+  engine/expr/ob_expr_weight_string.cpp
   engine/expr/ob_expr_host_ip.cpp
   engine/expr/ob_expr_ifnull.cpp
   engine/expr/ob_expr_in.cpp
@@ -278,6 +281,7 @@ ob_set_subtarget(ob_sql engine
   engine/expr/ob_expr_int_div.cpp
   engine/expr/ob_expr_interval.cpp
   engine/expr/ob_expr_ip2int.cpp
+  engine/expr/ob_expr_inet.cpp
   engine/expr/ob_expr_is.cpp
   engine/expr/ob_expr_is_serving_tenant.cpp
   engine/expr/ob_expr_last_exec_id.cpp
@@ -352,6 +356,8 @@ ob_set_subtarget(ob_sql engine
   engine/expr/ob_expr_pi.cpp
   engine/expr/ob_expr_pi.h
   engine/expr/ob_expr_radians.cpp
+  engine/expr/ob_expr_degrees.cpp
+  engine/expr/ob_expr_degrees.h
   engine/expr/ob_expr_res_type_map.cpp
   engine/expr/ob_expr_result_type_util.cpp
   engine/expr/ob_expr_reverse.cpp
@@ -1033,6 +1039,7 @@ ob_set_subtarget(ob_sql session
   session/ob_sql_session_info.cpp
   session/ob_sql_session_mgr.cpp
   session/ob_sys_params_mgr.cpp
+  session/ob_user_resource_mgr.cpp
 )
 
 ob_server_add_pchs(sql

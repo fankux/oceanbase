@@ -639,6 +639,7 @@ int ObDMLResolver::resolve_columns(ObRawExpr*& expr, ObArray<ObQualifiedName>& c
   for (int64_t i = 0; OB_SUCC(ret) && i < columns.count(); ++i) {
     ObQualifiedName& q_name = columns.at(i);
     ObRawExpr* real_ref_expr = NULL;
+    params_.is_column_ref_ = expr->is_column_ref_expr();
     if (OB_FAIL(resolve_qualified_identifier(q_name, columns, real_exprs, real_ref_expr))) {
       LOG_WARN_IGNORE_COL_NOTFOUND(ret, "resolve column ref expr failed", K(ret), K(q_name));
       report_user_error_msg(ret, expr, q_name);
@@ -2097,6 +2098,7 @@ int ObDMLResolver::expand_view(TableItem& view_item)
     ObViewTableResolver view_resolver(params_, get_view_db_name(), get_view_name());
     view_resolver.set_current_level(current_level_);
     view_resolver.set_current_view_item(view_item);
+    view_resolver.set_parent_namespace_resolver(parent_namespace_resolver_);
     if (OB_FAIL(do_expand_view(view_item, view_resolver))) {
       LOG_WARN("do expand view resolve failed", K(ret));
     }
@@ -2992,6 +2994,7 @@ int ObDMLResolver::resolve_and_split_sql_expr(const ParseNode& node, ObIArray<Ob
     ObExprResolveContext ctx(*params_.expr_factory_, session_info_->get_timezone_info(), OB_NAME_CASE_INVALID);
     ctx.stmt_ = static_cast<ObStmt*>(get_stmt());
     ctx.query_ctx_ = params_.query_ctx_;
+    ctx.session_info_ = params_.session_info_;
     ObRawExprCanonicalizerImpl canonicalizer(ctx);
     if (OB_FAIL(resolve_sql_expr(node, expr))) {
       LOG_WARN("resolve sql expr failed", K(ret));

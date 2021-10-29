@@ -36,6 +36,7 @@
 #include "sql/resolver/ddl/ob_drop_synonym_stmt.h"
 #include "sql/engine/expr/ob_datum_cast.h"
 #include "lib/checksum/ob_crc64.h"
+#include "observer/mysql/obmp_stmt_send_long_data.h"
 
 using namespace oceanbase::sql;
 using namespace oceanbase::common;
@@ -143,7 +144,9 @@ ObSQLSessionInfo::ObSQLSessionInfo()
       prelock_(false),
       proxy_version_(0),
       min_proxy_version_ps_(0),
-      is_ignore_stmt_(false)
+      is_ignore_stmt_(false),
+      got_conn_res_(false),
+      piece_cache_(NULL)
 {}
 
 ObSQLSessionInfo::~ObSQLSessionInfo()
@@ -330,6 +333,15 @@ void ObSQLSessionInfo::destroy(bool skip_sys_var)
       if (OB_FAIL(close_all_ps_stmt())) {
         LOG_WARN("failed to close all stmt", K(ret));
       }
+    }
+
+    if (OB_SUCC(ret) && NULL != piece_cache_) {
+      if (OB_FAIL((static_cast<observer::ObPieceCache*>(piece_cache_))
+                      ->close_all(*this))) {
+        LOG_WARN("failed to close all piece", K(ret));
+      }
+      get_session_allocator().free(piece_cache_);
+      piece_cache_ = NULL;
     }
 
     reset(skip_sys_var);
@@ -1006,6 +1018,23 @@ int ObSQLSessionInfo::kill_query()
   return OB_SUCCESS;
 }
 
+void* ObSQLSessionInfo::get_piece_cache(bool need_init) {
+  if (NULL == piece_cache_ && need_init) {
+    void *buf = get_session_allocator().alloc(sizeof(observer::ObPieceCache));
+    if (NULL != buf) {
+      MEMSET(buf, 0, sizeof(observer::ObPieceCache));
+      piece_cache_ = new (buf) observer::ObPieceCache();
+      if (OB_SUCCESS != (static_cast<observer::ObPieceCache*>(piece_cache_))->init(
+                            get_effective_tenant_id())) {
+        get_session_allocator().free(piece_cache_);
+        piece_cache_ = NULL;
+        LOG_WARN("init piece cache fail");
+      }
+    }
+  }
+  return piece_cache_;
+}
+
 ObAuditRecordData& ObSQLSessionInfo::get_audit_record()
 {
   audit_record_.try_cnt_++;
@@ -1266,6 +1295,63 @@ int ObSQLSessionInfo::ps_use_stream_result_set(bool& use_stream)
 #if !defined(NDEBUG)
     LOG_INFO("cursor use stream result.");
 #endif
+  }
+  return ret;
+}
+
+int ObSQLSessionInfo::on_user_connect(schema::ObSessionPrivInfo& priv_info, const ObUserInfo* user_info)
+{
+  int ret = OB_SUCCESS;
+  ObConnectResourceMgr* conn_res_mgr = GCTX.conn_res_mgr_;
+  if (get_is_deserialized()) {
+    // do nothing
+  } else if (OB_ISNULL(conn_res_mgr) || OB_ISNULL(user_info)) {
+    ret = OB_ERR_UNEXPECTED;
+    LOG_WARN("connect resource mgr or user info is null", K(ret), K(conn_res_mgr));
+  } else {
+    const ObPrivSet& priv = priv_info.user_priv_set_;
+    const ObString& user_name = priv_info.user_name_;
+    const uint64_t tenant_id = priv_info.tenant_id_;
+    const uint64_t user_id = priv_info.user_id_;
+    uint64_t max_connections_per_hour = user_info->get_max_connections();
+    uint64_t max_user_connections = user_info->get_max_user_connections();
+    uint64_t max_tenant_connections = 0;
+    if (OB_FAIL(get_sys_variable(SYS_VAR_MAX_CONNECTIONS, max_tenant_connections))) {
+      LOG_WARN("get system variable SYS_VAR_MAX_CONNECTIONS failed", K(ret));
+    } else if (0 == max_user_connections) {
+      if (OB_FAIL(get_sys_variable(SYS_VAR_MAX_USER_CONNECTIONS, max_user_connections))) {
+        LOG_WARN("get system variable SYS_VAR_MAX_USER_CONNECTIONS failed", K(ret));
+      }
+    } else {
+      ObObj val;
+      val.set_uint64(max_user_connections);
+      if (OB_FAIL(update_sys_variable(SYS_VAR_MAX_USER_CONNECTIONS, val))) {
+        LOG_WARN("set system variable SYS_VAR_MAX_USER_CONNECTIONS failed", K(ret), K(val));
+      }
+    }
+    if (OB_SUCC(ret) && OB_FAIL(conn_res_mgr->on_user_connect(tenant_id,
+                            user_id,
+                            priv,
+                            user_name,
+                            max_connections_per_hour,
+                            max_user_connections,
+                            max_tenant_connections,
+                            *this))) {
+      LOG_WARN("create user connection failed", K(ret));
+    }
+  }
+  return ret;
+}
+
+int ObSQLSessionInfo::on_user_disconnect()
+{
+  int ret = OB_SUCCESS;
+  ObConnectResourceMgr* conn_res_mgr = GCTX.conn_res_mgr_;
+  if (OB_ISNULL(conn_res_mgr)) {
+    ret = OB_ERR_UNEXPECTED;
+    LOG_WARN("connect resource mgr is null", K(ret));
+  } else if (OB_FAIL(conn_res_mgr->on_user_disconnect(*this))) {
+    LOG_WARN("user disconnect failed", K(ret));
   }
   return ret;
 }

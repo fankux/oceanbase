@@ -68,7 +68,7 @@ public:
   void stat();
 
 public:
-  // These interface are one one mapping whit MySQL request type currently
+  // These interface are one one mapping with MySQL request type currently
 
   // Interface of SQL Engine for OB_MYSQL_COM_QUERY request
   //
@@ -291,7 +291,7 @@ private:
 
   int replace_const_expr(common::ObIArray<ObRawExpr*>& raw_exprs, ParamStore& param_store);
   int replace_const_expr(ObRawExpr* raw_expr, ParamStore& param_store);
-  int generate_sql_id(ObPlanCacheCtx& pc_ctx, bool add_plan_to_pc);
+  void generate_sql_id(ObPlanCacheCtx& pc_ctx, bool add_plan_to_pc, int err_code);
   int pc_add_plan(ObPlanCacheCtx& pc_ctx, ObResultSet& result, ObOutlineState& outline_state, ObPlanCache* plan_cache);
   // Check whether the parameterized template SQL can be prepared
   void check_template_sql_can_be_prepare(ObPlanCacheCtx& pc_ctx, ObPhysicalPlan& plan);

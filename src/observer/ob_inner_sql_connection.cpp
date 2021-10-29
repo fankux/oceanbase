@@ -58,11 +58,24 @@ public:
   virtual ~ObSqlQueryExecutor()
   {}
 
-  virtual int execute(sql::ObSql& engine, sql::ObSqlCtx& ctx, sql::ObResultSet& res)
+  virtual int execute(sql::ObSql& engine, sql::ObSqlCtx& ctx, sql::ObResultSet& res) override
   {
     observer::ObReqTimeGuard req_timeinfo_guard;
-    res.get_session().store_query_string(sql_);
-    return engine.stmt_query(sql_, ctx, res);
+    int ret = OB_SUCCESS;
+    // Deep copy sql, because sql may be destroyed before result iteration.
+    const int64_t alloc_size = sizeof(ObString) + sql_.length() + 1;  // 1 for C terminate char
+    void *mem = res.get_mem_pool().alloc(alloc_size);
+    if (NULL == mem) {
+      ret = OB_ALLOCATE_MEMORY_FAILED;
+      LOG_WARN("allocate memory failed", K(ret));
+    } else {
+      ObString *dup_sql = new (mem) ObString(sql_.length(), sql_.length(), static_cast<char *>(mem) + sizeof(ObString));
+      MEMCPY(dup_sql->ptr(), sql_.ptr(), sql_.length());
+      dup_sql->ptr()[sql_.length()] = '\0';
+      res.get_session().store_query_string(*dup_sql);
+      ret = engine.stmt_query(*dup_sql, ctx, res);
+    }
+    return ret;
   }
 
   // process result after result open
@@ -411,7 +424,7 @@ int ObInnerSQLConnection::process_retry(
                  is_get_location_timeout_error(last_ret) || is_try_lock_row_err(last_ret) ||
                  is_has_no_readable_replica_err(last_ret) || is_select_dup_follow_replic_err(last_ret) ||
                  is_trans_stmt_need_retry_error(last_ret) || is_transaction_set_violation_err(last_ret) ||
-                 is_snapshot_discarded_err(last_ret) || OB_AUTOINC_SERVICE_BUSY == last_ret)) {
+                 is_snapshot_discarded_err(last_ret))) {
     need_retry = true;
     const uint64_t* trace_id = ObCurTraceId::get();
     bool sql_trigger_by_user_req = (NULL != trace_id && 0 != trace_id[0] && 0 != trace_id[1]);
